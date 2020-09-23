@@ -54,7 +54,10 @@ class SimpleModelWrapper(ModelWrapper):
         super().__init__([model])
 
     def forward(self, x):
-        return self.modules[0](x)
+        m = self.modules[0]
+        if torch.cuda.is_available():
+            m = m.cuda()
+        return m(x)
 
 
 class GeneralModelWrapper(ModelWrapper):

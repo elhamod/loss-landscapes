@@ -6,8 +6,11 @@ import copy
 import typing
 import torch.nn
 import numpy as np
+import os
+from tqdm.auto import tqdm 
 from loss_landscapes.model_interface.model_wrapper import ModelWrapper, wrap_model
 from loss_landscapes.model_interface.model_parameters import rand_u_like, orthogonal_to
+from loss_landscapes.metrics.helpers import Coordinates_tracker, get_optimal_distance, get_non_orth_projections
 from loss_landscapes.metrics.metric import Metric
 
 
@@ -230,7 +233,7 @@ def planar_interpolation(model_start: typing.Union[torch.nn.Module, ModelWrapper
 
 # noinspection DuplicatedCode
 def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Metric, distance=1, steps=20,
-                 normalization='filter', deepcopy_model=False) -> np.ndarray:
+                 normalization='filter', deepcopy_model=False, coord_Tracker: Coordinates_tracker=None, other_models: list= None) -> np.ndarray:
     """
     Returns the computed value of the evaluation function applied to the model or agent along a planar
     subspace of the parameter space defined by a start point and two randomly sampled directions.
@@ -268,12 +271,20 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
     :param normalization: normalization of direction vectors, must be one of 'filter', 'layer', 'model'
     :param deepcopy_model: indicates whether the method will deepcopy the model(s) to avoid aliasing
     :return: 1-d array of loss values along the line connecting start and end models
+    :para dirs_: a list of two ModelParameters for directions
     """
     model_start_wrapper = wrap_model(copy.deepcopy(model) if deepcopy_model else model)
 
     start_point = model_start_wrapper.get_module_parameters()
-    dir_one = rand_u_like(start_point)
-    dir_two = orthogonal_to(dir_one)
+    if coord_Tracker is None or coord_Tracker.dirs_ is None:
+        print("Creating random directions")
+        dir_one = rand_u_like(start_point)
+        dir_two = orthogonal_to(dir_one)
+        coord_Tracker.update_directions([dir_one, dir_two])
+    else:
+        [dir_one, dir_two] = copy.deepcopy(coord_Tracker.dirs_)
+
+    coord_Tracker.update_steps(steps)
 
     if normalization == 'model':
         dir_one.model_normalize_(start_point)
@@ -289,9 +300,31 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
     else:
         raise AttributeError('Unsupported normalization argument. Supported values are model, layer, and filter')
 
+
+    # TODO: let's do the PCA here after normalization. This way, the bases are perpendicular, which means a better projection.
+    if other_models is not None:
+        coord_Tracker.update_distance(get_optimal_distance(other_models,  model, normalization))#, [dir_one, dir_two]))
+        coord_Tracker.save()
+        distance = coord_Tracker.dist_
+        print("distance", distance)
+
     # scale to match steps and total distance
-    dir_one.mul_(((start_point.model_norm() * distance) / steps) / dir_one.model_norm())
-    dir_two.mul_(((start_point.model_norm() * distance) / steps) / dir_two.model_norm())
+    scale_one=((start_point.model_norm() * distance) / steps) / dir_one.model_norm()
+    scale_two=((start_point.model_norm() * distance) / steps) / dir_two.model_norm()
+    dir_one.mul_(scale_one)
+    dir_two.mul_(scale_two)
+
+    # print(start_point.model_norm())
+    # print(dir_one.model_norm())
+    # print(dir_two.model_norm())
+    # print(scale_one, scale_two)
+    # print("--")
+
+    coord_Tracker.update_scaled_directions([dir_one, dir_two])
+
+    # print(coord_Tracker.scaled_dirs_[0].model_norm(), coord_Tracker.scaled_dirs_[1].model_norm())
+    # print("--")
+    
     # Move start point so that original start params will be in the center of the plot
     dir_one.mul_(steps / 2)
     dir_two.mul_(steps / 2)
@@ -300,15 +333,18 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
     dir_one.truediv_(steps / 2)
     dir_two.truediv_(steps / 2)
 
+    model_start_wrapper2 = wrap_model(copy.deepcopy(model))
+    start_point2 = model_start_wrapper2.get_module_parameters()
+
     data_matrix = []
     # evaluate loss in grid of (steps * steps) points, where each column signifies one step
     # along dir_one and each row signifies one step along dir_two. The implementation is again
     # a little convoluted to avoid constructive operations. Fundamentally we generate the matrix
     # [[start_point + (dir_one * i) + (dir_two * j) for j in range(steps)] for i in range(steps].
-    for i in range(steps):
+    for i in tqdm(range(steps)):
         data_column = []
 
-        for j in range(steps):
+        for j in tqdm(range(steps)):
             # for every other column, reverse the order in which the column is generated
             # so you can easily use in-place operations to move along dir_two
             if i % 2 == 0:
@@ -317,6 +353,13 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
             else:
                 start_point.sub_(dir_two)
                 data_column.insert(0, metric(model_start_wrapper))
+            print(metric(model_start_wrapper))
+            # TODO: remove this and other wrappers or copys created for prints. They slow the code down.
+            diff_one, diff_two = get_non_orth_projections(coord_Tracker.scaled_dirs_, (start_point - start_point2))
+            # TODO: it is a bit off on the y-axis (diff_two - distance*start_point2.model_norm()*(j/steps-0.5) = 1step?). Figure out why.
+            print(diff_one,  diff_two)
+            print(distance*start_point2.model_norm()*(i/steps-0.5), distance*start_point2.model_norm()*(j/steps-0.5))
+            print('---')
 
         data_matrix.append(data_column)
         start_point.add_(dir_one)

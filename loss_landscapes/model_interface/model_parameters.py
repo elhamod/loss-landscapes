@@ -14,6 +14,8 @@ import math
 import numpy as np
 import torch
 import torch.nn
+from functools import reduce
+import sys
 
 
 class ModelParameters:
@@ -211,7 +213,7 @@ class ModelParameters:
         """
         # in-place normalize each parameter
         for layer_idx, parameter in enumerate(self.parameters, 0):
-            parameter *= (ref_point.layer_norm(layer_idx, order) / self.layer_norm(layer_idx, order))
+            parameter *= (ref_point.layer_norm(layer_idx, order) / (self.layer_norm(layer_idx, order)))
 
     def filter_normalize_(self, ref_point: 'ModelParameters', order=2):
         """
@@ -223,7 +225,7 @@ class ModelParameters:
         for l in range(len(self.parameters)):
             # normalize one-dimensional bias vectors
             if len(self.parameters[l].size()) == 1:
-                self.parameters[l] *= (ref_point.parameters[l].norm(order) / self.parameters[l].norm(order))
+                self.parameters[l] *= (ref_point.parameters[l].norm(order) / (self.parameters[l].norm(order)))
             # normalize two-dimensional weight vectors
             for f in range(len(self.parameters[l])):
                 self.parameters[l][f] *= ref_point.filter_norm((l, f), order) / (self.filter_norm((l, f), order))
@@ -258,6 +260,7 @@ class ModelParameters:
         :return: list of L-norms of filters
         """
         # L-n norm of each filter where we treat each layer as a flat other
+        # print(self.parameters[index[0]][index[1]])
         return math.pow(torch.pow(self.parameters[index[0]][index[1]], order).sum().item(), 1.0 / order)
 
     def as_numpy(self) -> np.ndarray:
@@ -265,7 +268,7 @@ class ModelParameters:
         Returns the tensor as a flat numpy array.
         :return: a numpy array
         """
-        return np.concatenate([p.numpy().flatten() for p in self.parameters])
+        return np.concatenate([p.cpu().numpy().flatten() for p in self.parameters])
 
     def _get_parameters(self) -> list:
         """
@@ -273,7 +276,21 @@ class ModelParameters:
         :return: reference to internal parameter data
         """
         return self.parameters
+        
 
+def numpy_to_ModelParameters(arr, similar_model_params):
+    shapes = [p.shape for p in similar_model_params]
+    lens = [reduce(lambda x, y: x*y, p) for p in shapes]
+    output_params = []
+    j=0
+    for i, shape  in enumerate(shapes):
+        len_ = lens[i]
+        output_params.append(arr[j:j+len_].reshape(shape))
+        j = j+len_
+    output_params = [torch.from_numpy(i) for i in output_params]
+    if torch.cuda.is_available():
+        output_params = [i.cuda() for i in output_params]
+    return ModelParameters(output_params)
 
 def rand_u_like(example_vector: ModelParameters) -> ModelParameters:
     """
@@ -286,7 +303,10 @@ def rand_u_like(example_vector: ModelParameters) -> ModelParameters:
     new_vector = []
 
     for param in example_vector:
-        new_vector.append(torch.rand(size=param.size(), dtype=example_vector[0].dtype))
+        p = torch.rand(size=param.size(), dtype=example_vector[0].dtype)
+        if torch.cuda.is_available():
+            p = p.cuda()
+        new_vector.append(p)
 
     return ModelParameters(new_vector)
 
