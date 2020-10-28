@@ -66,8 +66,9 @@ def get_best_fit_orthogonal_bases_pca(models):
     start = time.time()
     pca.fit(wrapped_model_params_numpy.T)
     print("PCA time: ", time.time() - start)
+    result = numpy_to_ModelParameters(pca.components_[0, :], wrapped_model_params[0]), numpy_to_ModelParameters(pca.components_[1, :], wrapped_model_params[0])
 
-    return numpy_to_ModelParameters(pca.components_[0, :], wrapped_model_params[0]), numpy_to_ModelParameters(pca.components_[1, :], wrapped_model_params[0])
+    return result
 
 
 def normalize(model_params, start_point, normalization):
@@ -99,9 +100,7 @@ def get_non_orth_projections(dirs_, model_params):
     dir2 = dirs_[1]/dirs_[1].model_norm()
 
     a = np.array([[dir1.dot(dir1),dir1.dot(dir2)], [dir2.dot(dir1),dir2.dot(dir2)]])
-    print(a)
     b = np.array([model_params.dot(dir1),model_params.dot(dir2)]) 
-    print(b)
     x = np.linalg.solve(a, b)
 
     return x[0], x[1]
@@ -109,34 +108,22 @@ def get_non_orth_projections(dirs_, model_params):
 
 
 # get best distance for models:
-def get_optimal_distance(models, model_start, normalization):#, dirs_):
+def get_optimal_distance(models, model_start, normalization): #, dirs_
     distance = None
     
     model_start_wrapper = wrap_model(copy.deepcopy(model_start))
     model_start_params = model_start_wrapper.get_module_parameters()
     model_start_norm = model_start_params.model_norm()
-    # print(model_start_params.as_numpy())
-    model_start_params_normalized = normalize(model_start_params, model_start_params, normalization)
-    # print(model_start_params_normalized.as_numpy())
 
-    print('C', model_start_norm)
-    margin_Factor = 1 #TODO: maybe make this bigger?
+    margin_Factor = 1.2 #TODO: maybe make this bigger?
     # Adjust the distance to encompass all models
     for model in models:
         wrapper_model = wrap_model(copy.deepcopy(model))
-       
 
-        # print(wrapper_model.get_module_parameters().as_numpy())
-        wrapper_model_normalized = normalize(wrapper_model.get_module_parameters(), model_start_params, normalization)
-        # print(wrapper_model_normalized.as_numpy())
-
-        diff =wrapper_model_normalized -model_start_params_normalized
-        # print('before diff', diff.model_norm())
-
-        # diff_norm = project(diff, dirs_)
+        diff =wrapper_model.get_module_parameters() -model_start_params
 
         diff_norm = diff.model_norm()
-        print('diff_norm', diff_norm)
+
         distance_ = diff_norm*2/model_start_norm
         if distance == None or distance < distance_:
             distance = distance_ #*2
@@ -147,17 +134,28 @@ def get_optimal_distance(models, model_start, normalization):#, dirs_):
 # keeps track of the grid
 class Coordinates_tracker():
     # dirs_ is a two bases vector list
-    def __init__(self,path=None, dirs_=None, dist_=None, steps_=None, scaled_dirs_=None):
+    def __init__(self,path=None, dirs_path=None, dirs_=None, dist_=None, steps_=None, scaled_dirs_=None):
         self.dirs_ = dirs_
         self.scaled_dirs_ = scaled_dirs_
         self.dist_ = dist_
         self.steps_ = steps_
         self.save_path = path
+        self.dirs_path = dirs_path
+
+    def load_dirs(self):
+        if os.path.exists(self.dirs_path):
+            try:
+                self.dirs_ = pickle.load(open(os.path.join(self.dirs_path, 'directions'), "rb"))
+                return True
+            except:
+                print("Unexpected error:", sys.exc_info()[0])
+                pass
+
+        return False
 
     def load(self):
         if os.path.exists(self.save_path):
             try:
-                self.dirs_ = pickle.load(open(os.path.join(self.save_path, 'directions'), "rb"))
                 self.scaled_dirs_ = pickle.load(open(os.path.join(self.save_path, 'scaled_directions'), "rb"))
                 self.dist_ = pickle.load(open(os.path.join(self.save_path, 'distance'), "rb"))
                 self.steps_ = pickle.load(open(os.path.join(self.save_path, 'steps'), "rb"))
@@ -188,7 +186,7 @@ class Coordinates_tracker():
         if self.save_path is not None:
             if not os.path.exists(self.save_path):
                 os.makedirs(self.save_path)
-            pickle.dump(self.dirs_, open( os.path.join(self.save_path, 'directions'), "wb" ))
+            pickle.dump(self.dirs_, open( os.path.join(self.dirs_path, 'directions'), "wb" ))
             pickle.dump(self.dist_, open( os.path.join(self.save_path, 'distance'), "wb"))
             pickle.dump(self.steps_, open( os.path.join(self.save_path, 'steps'), "wb"))
             pickle.dump(self.scaled_dirs_, open( os.path.join(self.save_path, 'scaled_directions'), "wb"))

@@ -214,6 +214,8 @@ class ModelParameters:
         # in-place normalize each parameter
         for layer_idx, parameter in enumerate(self.parameters, 0):
             parameter *= (ref_point.layer_norm(layer_idx, order) / (self.layer_norm(layer_idx, order)))
+            # print((ref_point.layer_norm(layer_idx, order) / (self.layer_norm(layer_idx, order))))
+            # print('end-----')
 
     def filter_normalize_(self, ref_point: 'ModelParameters', order=2):
         """
