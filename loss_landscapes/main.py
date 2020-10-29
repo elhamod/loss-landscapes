@@ -9,10 +9,12 @@ import numpy as np
 import os
 from tqdm.auto import tqdm 
 from loss_landscapes.model_interface.model_wrapper import ModelWrapper, wrap_model
-from loss_landscapes.model_interface.model_parameters import rand_u_like, orthogonal_to
-from loss_landscapes.metrics.helpers import Coordinates_tracker, get_optimal_distance, get_non_orth_projections
+from loss_landscapes.model_interface.model_parameters import rand_u_like, orthogonal_to, numpy_to_ModelParameters
+from loss_landscapes.metrics.helpers import Coordinates_tracker, get_optimal_distance, get_non_orth_projections, get_centroid_of_points, get_point_projection
 from loss_landscapes.metrics.metric import Metric
 
+
+Enable_centroid_calculation = False # This should only be set to true if we want to move the centroid  away from final model. NOT RECOMMENDED!!
 
 # noinspection DuplicatedCode
 def point(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Metric) -> tuple:
@@ -289,6 +291,23 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
         coord_Tracker.update_steps(20)
     steps = coord_Tracker.steps_
 
+    if coord_Tracker.dist_ is None:
+        if other_models is not None:
+            coord_Tracker.update_distance(get_optimal_distance(other_models,  model, normalization))#, [dir_one, dir_two]))
+        else:
+            coord_Tracker.update_distance(1)
+    distance = coord_Tracker.dist_
+
+    if coord_Tracker.centroid_ is None:
+        if other_models is not None and Enable_centroid_calculation:
+            c = get_centroid_of_points(other_models + [model])
+            coord_Tracker.update_centroid(numpy_to_ModelParameters(c, start_point))
+        else:
+            coord_Tracker.update_centroid(start_point)
+    centroid = coord_Tracker.centroid_
+
+    start_point = get_point_projection(start_point, centroid, [dir_one, dir_two])
+
     if normalization == 'model':
         dir_one.model_normalize_(start_point)
         dir_two.model_normalize_(start_point)
@@ -303,13 +322,6 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
     else:
         raise AttributeError('Unsupported normalization argument. Supported values are model, layer, and filter')
 
-
-    if coord_Tracker.dist_ is None:
-        if other_models is not None:
-            coord_Tracker.update_distance(get_optimal_distance(other_models,  model, normalization))#, [dir_one, dir_two]))
-        else:
-            coord_Tracker.update_distance(1)
-    distance = coord_Tracker.dist_
 
     # scale to match steps and total distance
     scale_one=((start_point.model_norm() * distance) / steps) / dir_one.model_norm()

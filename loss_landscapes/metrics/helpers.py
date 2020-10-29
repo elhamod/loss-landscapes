@@ -15,47 +15,59 @@ from loss_landscapes.model_interface.model_wrapper import wrap_model
 def get_model_params_as_numpy(example_vectors):
     return np.concatenate([np.reshape(example_vector.as_numpy(), (-1, 1)) for example_vector in example_vectors], axis=1)
 
-def get_centroid_of_points(example_vectors):
+def get_centroid_of_points(model_list):
     # get sum
-    example_vectors_np = get_model_params_as_numpy(example_vectors)
+    wrapped_model_params = []
+    for i in model_list:
+        wrapped_model_params.append(wrap_model(i).get_module_parameters())
+    example_vectors_np = get_model_params_as_numpy(wrapped_model_params)
     sum = np.sum(example_vectors_np, axis=1)
-    return np.reshape(sum/ example_vectors_np.shape[0], (-1, 1))
+    result = np.reshape(sum/ example_vectors_np.shape[1], (-1, 1))
+    return result
+
+# Gives the projection of the model on the plane made of centroid and two dirs.
+def get_point_projection(model_params, centroid_params, dirs):
+    delta_params = model_params - centroid_params
+    diff1, diff2 = get_non_orth_projections(dirs, delta_params)
+    return centroid_params + numpy_to_ModelParameters(diff1*dirs[0].as_numpy()/dirs[0].model_norm() + diff2*dirs[1].as_numpy()/dirs[1].model_norm(), model_params)
+
+
 
 # gives the normal vector to best fitting plane of models.
-def get_best_normal_vector_to_models(example_vectors):
-    # flatten
-    example_vectors_adjusted = get_model_params_as_numpy(example_vectors)
-    centroid = get_centroid_of_points(example_vectors)
-    example_vectors_adjusted = example_vectors_adjusted - centroid
-    svd = np.transpose(np.linalg.svd(example_vectors_adjusted, full_matrices=False)) # full_matrices: Prohibitive memory usage.
-    return np.reshape(svd[0][:,-1], (-1, 1))
+# def get_best_normal_vector_to_models(example_vectors):
+#     # flatten
+#     example_vectors_adjusted = get_model_params_as_numpy(example_vectors)
+#     centroid = get_centroid_of_points(example_vectors)
+#     example_vectors_adjusted = example_vectors_adjusted - centroid
+#     svd = np.transpose(np.linalg.svd(example_vectors_adjusted, full_matrices=False)) # full_matrices: Prohibitive memory usage.
+#     return np.reshape(svd[0][:,-1], (-1, 1))
 
-def get_two_orthognal_bases_from_norm(norm):
-    x = np.reshape(np.random.randn(norm.shape[0]), (-1, 1))  # take a random vector
-    x -= x.T.dot(norm) * norm       # make it orthogonal to k
-    x /= np.linalg.norm(x)  # normalize it to obtain the 2nd one:
-    # y = np.cross(norm.T, x.T)      # cross product with k: only works for 2 day
-    y = find_orth(x, norm) # prohibitively expensive.
-    return x, y
+# def get_two_orthognal_bases_from_norm(norm):
+#     x = np.reshape(np.random.randn(norm.shape[0]), (-1, 1))  # take a random vector
+#     x -= x.T.dot(norm) * norm       # make it orthogonal to k
+#     x /= np.linalg.norm(x)  # normalize it to obtain the 2nd one:
+#     # y = np.cross(norm.T, x.T)      # cross product with k: only works for 2 day
+#     y = find_orth(x, norm) # prohibitively expensive.
+#     return x, y
 
 # from https://stackoverflow.com/questions/50660389/generate-a-vector-that-is-orthogonal-to-a-set-of-other-vectors-in-any-dimension
-from numpy.linalg import lstsq
-from scipy.linalg import orth
-# bases are n*1
-def find_orth(base1, base2):
-    O = np.concatenate([base1, base2], axis=1)
-    rand_vec = np.random.rand(O.shape[0], 1)
-    A = np.hstack((O, rand_vec))
-    b = np.zeros(O.shape[1] + 1)
-    b[-1] = 1
-    return lstsq(A.T, b)[0]
+# from numpy.linalg import lstsq
+# from scipy.linalg import orth
+# # bases are n*1
+# def find_orth(base1, base2):
+#     O = np.concatenate([base1, base2], axis=1)
+#     rand_vec = np.random.rand(O.shape[0], 1)
+#     A = np.hstack((O, rand_vec))
+#     b = np.zeros(O.shape[1] + 1)
+#     b[-1] = 1
+#     return lstsq(A.T, b)[0]
 
 
 
 
 # Public
-def get_best_fit_orthogonal_bases(models):
-    return(get_two_orthognal_bases_from_norm(get_best_normal_vector_to_models(models)))
+# def get_best_fit_orthogonal_bases(models):
+#     return(get_two_orthognal_bases_from_norm(get_best_normal_vector_to_models(models)))
 
 def get_best_fit_orthogonal_bases_pca(models):
     wrapped_model_params = []
@@ -89,11 +101,11 @@ def normalize(model_params, start_point, normalization):
 
 
 
-def project(model_params, dirs_):
-    model_params_x = model_params.dot(dirs_[0])/ dirs_[0].model_norm()
-    model_params_y = model_params.dot(dirs_[1])/ dirs_[1].model_norm()
+# def project(model_params, dirs_):
+#     model_params_x = model_params.dot(dirs_[0])/ dirs_[0].model_norm()
+#     model_params_y = model_params.dot(dirs_[1])/ dirs_[1].model_norm()
 
-    return math.pow((math.pow(model_params_x,2) + math.pow(model_params_y, 2)), 0.5)
+#     return math.pow((math.pow(model_params_x,2) + math.pow(model_params_y, 2)), 0.5)
 
 def get_non_orth_projections(dirs_, model_params):
     dir1 = dirs_[0]/dirs_[0].model_norm()
@@ -134,11 +146,12 @@ def get_optimal_distance(models, model_start, normalization): #, dirs_
 # keeps track of the grid
 class Coordinates_tracker():
     # dirs_ is a two bases vector list
-    def __init__(self,path=None, dirs_path=None, dirs_=None, dist_=None, steps_=None, scaled_dirs_=None):
+    def __init__(self,path=None, dirs_path=None, dirs_=None, dist_=None, steps_=None, scaled_dirs_=None, centroid_=None):
         self.dirs_ = dirs_
         self.scaled_dirs_ = scaled_dirs_
         self.dist_ = dist_
         self.steps_ = steps_
+        self.centroid_ = centroid_
         self.save_path = path
         self.dirs_path = dirs_path
 
@@ -146,6 +159,7 @@ class Coordinates_tracker():
         if os.path.exists(self.dirs_path):
             try:
                 self.dirs_ = pickle.load(open(os.path.join(self.dirs_path, 'directions'), "rb"))
+                self.centroid_ = pickle.load(open(os.path.join(self.dirs_path, 'centroid'), "rb"))
                 return True
             except:
                 print("Unexpected error:", sys.exc_info()[0])
@@ -170,6 +184,10 @@ class Coordinates_tracker():
         self.dist_ = dist_
         self.save()
 
+    def update_centroid(self,centroid_):
+        self.centroid_ = centroid_
+        self.save()
+
     def update_directions(self,dirs_):
         self.dirs_ = dirs_
         self.save()
@@ -187,6 +205,7 @@ class Coordinates_tracker():
             if not os.path.exists(self.save_path):
                 os.makedirs(self.save_path)
             pickle.dump(self.dirs_, open( os.path.join(self.dirs_path, 'directions'), "wb" ))
+            pickle.dump(self.centroid_, open( os.path.join(self.dirs_path, 'centroid'), "wb" ))
             pickle.dump(self.dist_, open( os.path.join(self.save_path, 'distance'), "wb"))
             pickle.dump(self.steps_, open( os.path.join(self.save_path, 'steps'), "wb"))
             pickle.dump(self.scaled_dirs_, open( os.path.join(self.save_path, 'scaled_directions'), "wb"))
