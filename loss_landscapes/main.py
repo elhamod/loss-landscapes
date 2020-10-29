@@ -298,16 +298,6 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
             coord_Tracker.update_distance(1)
     distance = coord_Tracker.dist_
 
-    if coord_Tracker.centroid_ is None:
-        if other_models is not None and Enable_centroid_calculation:
-            c = get_centroid_of_points(other_models + [model])
-            coord_Tracker.update_centroid(numpy_to_ModelParameters(c, start_point))
-        else:
-            coord_Tracker.update_centroid(start_point)
-    centroid = coord_Tracker.centroid_
-
-    start_point = get_point_projection(start_point, centroid, [dir_one, dir_two])
-
     if normalization == 'model':
         dir_one.model_normalize_(start_point)
         dir_two.model_normalize_(start_point)

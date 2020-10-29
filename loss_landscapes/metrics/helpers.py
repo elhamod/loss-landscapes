@@ -15,21 +15,21 @@ from loss_landscapes.model_interface.model_wrapper import wrap_model
 def get_model_params_as_numpy(example_vectors):
     return np.concatenate([np.reshape(example_vector.as_numpy(), (-1, 1)) for example_vector in example_vectors], axis=1)
 
-def get_centroid_of_points(model_list):
-    # get sum
-    wrapped_model_params = []
-    for i in model_list:
-        wrapped_model_params.append(wrap_model(i).get_module_parameters())
-    example_vectors_np = get_model_params_as_numpy(wrapped_model_params)
-    sum = np.sum(example_vectors_np, axis=1)
-    result = np.reshape(sum/ example_vectors_np.shape[1], (-1, 1))
-    return result
+# def get_centroid_of_points(model_list):
+#     # get sum
+#     wrapped_model_params = []
+#     for i in model_list:
+#         wrapped_model_params.append(wrap_model(i).get_module_parameters())
+#     example_vectors_np = get_model_params_as_numpy(wrapped_model_params)
+#     sum = np.sum(example_vectors_np, axis=1)
+#     result = np.reshape(sum/ example_vectors_np.shape[1], (-1, 1))
+#     return result
 
 # Gives the projection of the model on the plane made of centroid and two dirs.
-def get_point_projection(model_params, centroid_params, dirs):
-    delta_params = model_params - centroid_params
-    diff1, diff2 = get_non_orth_projections(dirs, delta_params)
-    return centroid_params + numpy_to_ModelParameters(diff1*dirs[0].as_numpy()/dirs[0].model_norm() + diff2*dirs[1].as_numpy()/dirs[1].model_norm(), model_params)
+# def get_point_projection(model_params, centroid_params, dirs):
+#     delta_params = model_params - centroid_params
+#     diff1, diff2 = get_non_orth_projections(dirs, delta_params)
+#     return centroid_params + numpy_to_ModelParameters(diff1*dirs[0].as_numpy()/dirs[0].model_norm() + diff2*dirs[1].as_numpy()/dirs[1].model_norm(), model_params)
 
 
 
@@ -159,7 +159,6 @@ class Coordinates_tracker():
         if os.path.exists(self.dirs_path):
             try:
                 self.dirs_ = pickle.load(open(os.path.join(self.dirs_path, 'directions'), "rb"))
-                self.centroid_ = pickle.load(open(os.path.join(self.dirs_path, 'centroid'), "rb"))
                 return True
             except:
                 print("Unexpected error:", sys.exc_info()[0])
@@ -184,10 +183,6 @@ class Coordinates_tracker():
         self.dist_ = dist_
         self.save()
 
-    def update_centroid(self,centroid_):
-        self.centroid_ = centroid_
-        self.save()
-
     def update_directions(self,dirs_):
         self.dirs_ = dirs_
         self.save()
@@ -205,7 +200,6 @@ class Coordinates_tracker():
             if not os.path.exists(self.save_path):
                 os.makedirs(self.save_path)
             pickle.dump(self.dirs_, open( os.path.join(self.dirs_path, 'directions'), "wb" ))
-            pickle.dump(self.centroid_, open( os.path.join(self.dirs_path, 'centroid'), "wb" ))
             pickle.dump(self.dist_, open( os.path.join(self.save_path, 'distance'), "wb"))
             pickle.dump(self.steps_, open( os.path.join(self.save_path, 'steps'), "wb"))
             pickle.dump(self.scaled_dirs_, open( os.path.join(self.save_path, 'scaled_directions'), "wb"))
