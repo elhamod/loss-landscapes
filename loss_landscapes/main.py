@@ -10,7 +10,7 @@ import os
 from tqdm.auto import tqdm 
 from loss_landscapes.model_interface.model_wrapper import ModelWrapper, wrap_model
 from loss_landscapes.model_interface.model_parameters import rand_u_like, orthogonal_to, numpy_to_ModelParameters
-from loss_landscapes.metrics.helpers import Coordinates_tracker, get_optimal_distance, get_non_orth_projections, get_centroid_of_points, get_point_projection
+from loss_landscapes.metrics.helpers import Coordinates_tracker, get_optimal_distance, get_non_orth_projections
 from loss_landscapes.metrics.metric import Metric
 
 
