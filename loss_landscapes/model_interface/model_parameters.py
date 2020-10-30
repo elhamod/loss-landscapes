@@ -89,7 +89,8 @@ class ModelParameters:
         :return: none
         """
         for idx in range(len(self)):
-            self.parameters[idx] += other[idx]
+            # TODO: .cpu().cuda() is a hack because tensors can be from different devices
+            self.parameters[idx] += other[idx].cpu().cuda()
 
     def __sub__(self, other: 'ModelParameters') -> 'ModelParameters':
         """
@@ -114,7 +115,8 @@ class ModelParameters:
         :return: none
         """
         for idx in range(len(self)):
-            self.parameters[idx] -= vector[idx]
+            # TODO: .cpu().cuda() is a hack because tensors can be from different devices
+            self.parameters[idx] -= vector[idx].cpu().cuda()
 
     def __mul__(self, scalar) -> 'ModelParameters':
         """
@@ -191,7 +193,8 @@ class ModelParameters:
         """
         param_products = []
         for idx in range(len(self.parameters)):
-            param_products.append((self.parameters[idx] * other.parameters[idx]).sum().item())
+            # TODO: .cpu().cuda() is a hack because tensors can be from different devices
+            param_products.append((self.parameters[idx].cpu().cuda() * other.parameters[idx].cpu().cuda()).sum().item())
         return sum(param_products)
 
     def model_normalize_(self, ref_point: 'ModelParameters', order=2):

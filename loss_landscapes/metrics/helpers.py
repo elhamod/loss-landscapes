@@ -6,6 +6,7 @@ import sys
 import time
 import math
 import copy
+# import torch
 
 from loss_landscapes.model_interface.model_parameters import ModelParameters, numpy_to_ModelParameters
 from loss_landscapes.model_interface.model_wrapper import wrap_model
@@ -171,7 +172,7 @@ class Coordinates_tracker():
             try:
                 self.scaled_dirs_ = pickle.load(open(os.path.join(self.save_path, 'scaled_directions'), "rb"))
                 self.dist_ = pickle.load(open(os.path.join(self.save_path, 'distance'), "rb"))
-                self.steps_ = pickle.load(open(os.path.join(self.save_path, 'steps'), "rb"))
+                self.steps_ = pickle.load(open(os.path.join(self.save_path, 'steps'), "rb"))                
                 return True
             except:
                 print("Unexpected error:", sys.exc_info()[0])
@@ -206,3 +207,8 @@ class Coordinates_tracker():
             return True
 
         return False
+    
+    # def to_cuda(self, a):
+    #     if torch.cuda.is_available() and a is not None:
+    #         return a.cuda()
+    #     return a
