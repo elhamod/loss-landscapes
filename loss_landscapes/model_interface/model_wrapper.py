@@ -55,8 +55,6 @@ class SimpleModelWrapper(ModelWrapper):
 
     def forward(self, x):
         m = self.modules[0]
-        if torch.cuda.is_available():
-            m = m.cuda()
         return m(x)
 
 

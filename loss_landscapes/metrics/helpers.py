@@ -1,4 +1,6 @@
+import matplotlib.pyplot as plt
 import numpy as np
+
 from sklearn.decomposition import PCA
 import os
 import pickle
@@ -8,6 +10,7 @@ import math
 import copy
 # import torch
 
+import loss_landscapes
 from loss_landscapes.model_interface.model_parameters import ModelParameters, numpy_to_ModelParameters
 from loss_landscapes.model_interface.model_wrapper import wrap_model
 
@@ -131,7 +134,7 @@ def get_optimal_distance(models, model_start, normalization): #, dirs_
     margin_Factor = 1.2 #TODO: maybe make this bigger?
     # Adjust the distance to encompass all models
     for model in models:
-        wrapper_model = wrap_model(copy.deepcopy(model))
+        wrapper_model = wrap_model(copy.deepcopy(model.cuda()))
 
         diff =wrapper_model.get_module_parameters() -model_start_params
 
@@ -142,12 +145,30 @@ def get_optimal_distance(models, model_start, normalization): #, dirs_
             distance = distance_ #*2
     return distance*margin_Factor
 
+# Scale all models on the optimization path to the normalized coordinates.
+def scale_model(model_params, center_model_params, scaled_dirs_, normalize, DISTANCE, STEPS):
+    diff = model_params - center_model_params
+
+    diff_one, diff_two = loss_landscapes.get_non_orth_projections(scaled_dirs_, diff)
+    
+#     print(diff.as_numpy())
+#     h = diff_one*scaled_dirs_[0].as_numpy()/scaled_dirs_[0].model_norm() + diff_two*scaled_dirs_[1].as_numpy()/scaled_dirs_[1].model_norm()
+#     print(h)
+#     print('---')
+#     print('norm', np.linalg.norm(diff.as_numpy() - h))
+    
+    scaler=1/center_model_params.model_norm()
+    adjust = 0.5*DISTANCE/STEPS
+
+    return diff_one*scaler + adjust , diff_two*scaler + adjust, diff
+
+
 
 
 # keeps track of the grid
 class Coordinates_tracker():
     # dirs_ is a two bases vector list
-    def __init__(self,path=None, dirs_path=None, dirs_=None, dist_=None, steps_=None, scaled_dirs_=None, centroid_=None):
+    def __init__(self,path=None, dirs_path=None, dirs_=None, dist_=None, steps_=None, scaled_dirs_=None, centroid_=None, device=None):
         self.dirs_ = dirs_
         self.scaled_dirs_ = scaled_dirs_
         self.dist_ = dist_
@@ -155,14 +176,18 @@ class Coordinates_tracker():
         self.centroid_ = centroid_
         self.save_path = path
         self.dirs_path = dirs_path
+        self.device=device
 
     def load_dirs(self):
         if os.path.exists(self.dirs_path):
             try:
                 self.dirs_ = pickle.load(open(os.path.join(self.dirs_path, 'directions'), "rb"))
+                if self.device is not None and (self.dirs_ is not None):
+                    self.dirs_ = (self.dirs_[0].cuda(), self.dirs_[1].cuda())
                 return True
             except:
-                print("Unexpected error:", sys.exc_info()[0])
+                print("Couldn't load directions")
+                print("Unexpected error:", sys.exc_info()[1])
                 pass
 
         return False
@@ -172,10 +197,13 @@ class Coordinates_tracker():
             try:
                 self.scaled_dirs_ = pickle.load(open(os.path.join(self.save_path, 'scaled_directions'), "rb"))
                 self.dist_ = pickle.load(open(os.path.join(self.save_path, 'distance'), "rb"))
-                self.steps_ = pickle.load(open(os.path.join(self.save_path, 'steps'), "rb"))                
+                self.steps_ = pickle.load(open(os.path.join(self.save_path, 'steps'), "rb"))   
+                if self.device is not None and (self.scaled_dirs_ is not None):
+                    self.scaled_dirs_ = (self.scaled_dirs_[0].cuda(), self.scaled_dirs_[1].cuda())            
                 return True
             except:
-                print("Unexpected error:", sys.exc_info()[0])
+                print("Couldn't load scaled directions, number of steps, or distance")
+                print("Unexpected error:", sys.exc_info()[1])
                 pass
 
         return False
@@ -212,3 +240,44 @@ class Coordinates_tracker():
     #     if torch.cuda.is_available() and a is not None:
     #         return a.cuda()
     #     return a
+
+
+def plot_surface_data(loss_data, models, metric, coord_Tracker, title, normalize='filter', maxVal=None, minVal=None, contour_levels=15, every_x_model=10):
+    if maxVal is None:
+        maxVal = np.amax([loss_data])
+    if minVal is None:
+        minVal = np.amin([loss_data])
+    
+    num_rows=1
+    num_columns=1
+    STEPS = coord_Tracker.steps_
+    DISTANCE = coord_Tracker.dist_
+
+    f, axes = plt.subplots(num_rows, num_columns, figsize=(10, 10), dpi= 300,)
+
+    X = np.array([(k - int(STEPS/2))*DISTANCE/STEPS for k in range(STEPS+1)])
+    # X = np.array([(k - int(STEPS/2)) for k in range(STEPS+1)])
+    Y = X
+
+    # plot contoues and heatmap
+    ax = plt.subplot(num_rows, num_columns, 1)
+    contours = plt.contour(X, Y, loss_data, contour_levels, colors='black') # 
+    plt.clabel(contours, inline=True, fontsize=10)
+    plt.imshow(loss_data, extent=[X[0], X[-1], Y[0], Y[-1]], origin='lower') # , cmap='RdGy', alpha=0.5
+    plt.pcolor(X, Y, loss_data, vmin=minVal, vmax=maxVal, cmap='Reds')
+    plt.colorbar()
+
+    ax.title.set_text(title) 
+
+    # plot optimzation path
+    wm_center = loss_landscapes.wrap_model(models[-1].cuda()).get_module_parameters()
+    for i in range(len(models)):
+        wm_ = loss_landscapes.wrap_model(models[i].cuda())
+        wm = wm_.get_module_parameters()
+        scaled_model = scale_model(wm, wm_center, coord_Tracker.scaled_dirs_, normalize, DISTANCE, STEPS)
+        plt.plot(scaled_model[0], scaled_model[1], marker='o', markersize=4, color="blue" if i==len(models)-1 else "red")
+        value = round(metric(wm_).item(),2)
+        if i%every_x_model == 0 or i==len(models)-1:
+            plt.text(scaled_model[0], scaled_model[1], value, fontdict={'size'   : 15})
+    
+    return f

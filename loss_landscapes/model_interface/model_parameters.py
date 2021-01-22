@@ -17,6 +17,7 @@ import torch.nn
 from functools import reduce
 import sys
 
+epsilon= 0.00000001
 
 class ModelParameters:
     """
@@ -32,6 +33,10 @@ class ModelParameters:
 
         self.parameters = parameters
 
+    def cuda(self):
+        self.parameters = list(map(lambda p: p.cuda(), self.parameters))
+        return self
+    
     def __len__(self) -> int:
         """
         Returns the number of model layers within the parameter tensor.
@@ -89,8 +94,7 @@ class ModelParameters:
         :return: none
         """
         for idx in range(len(self)):
-            # TODO: .cpu().cuda() is a hack because tensors can be from different devices
-            self.parameters[idx] += other[idx].cpu().cuda()
+            self.parameters[idx] += other[idx]
 
     def __sub__(self, other: 'ModelParameters') -> 'ModelParameters':
         """
@@ -115,8 +119,7 @@ class ModelParameters:
         :return: none
         """
         for idx in range(len(self)):
-            # TODO: .cpu().cuda() is a hack because tensors can be from different devices
-            self.parameters[idx] -= vector[idx].cpu().cuda()
+            self.parameters[idx] -= vector[idx]
 
     def __mul__(self, scalar) -> 'ModelParameters':
         """
@@ -193,8 +196,7 @@ class ModelParameters:
         """
         param_products = []
         for idx in range(len(self.parameters)):
-            # TODO: .cpu().cuda() is a hack because tensors can be from different devices
-            param_products.append((self.parameters[idx].cpu().cuda() * other.parameters[idx].cpu().cuda()).sum().item())
+            param_products.append((self.parameters[idx]* other.parameters[idx]).sum().item())
         return sum(param_products)
 
     def model_normalize_(self, ref_point: 'ModelParameters', order=2):
@@ -205,7 +207,7 @@ class ModelParameters:
         :return: none
         """
         for parameter in self.parameters:
-            parameter *= (ref_point.model_norm(order) / self.model_norm())
+            parameter *= (ref_point.model_norm(order) / (self.model_norm() + epsilon))
 
     def layer_normalize_(self, ref_point: 'ModelParameters', order=2):
         """
@@ -216,7 +218,7 @@ class ModelParameters:
         """
         # in-place normalize each parameter
         for layer_idx, parameter in enumerate(self.parameters, 0):
-            parameter *= (ref_point.layer_norm(layer_idx, order) / (self.layer_norm(layer_idx, order)))
+            parameter *= (ref_point.layer_norm(layer_idx, order) / (self.layer_norm(layer_idx, order)+epsilon))
             # print((ref_point.layer_norm(layer_idx, order) / (self.layer_norm(layer_idx, order))))
             # print('end-----')
 
@@ -230,10 +232,10 @@ class ModelParameters:
         for l in range(len(self.parameters)):
             # normalize one-dimensional bias vectors
             if len(self.parameters[l].size()) == 1:
-                self.parameters[l] *= (ref_point.parameters[l].norm(order) / (self.parameters[l].norm(order)))
+                self.parameters[l] *= (ref_point.parameters[l].norm(order) / (self.parameters[l].norm(order)+epsilon))
             # normalize two-dimensional weight vectors
             for f in range(len(self.parameters[l])):
-                self.parameters[l][f] *= ref_point.filter_norm((l, f), order) / (self.filter_norm((l, f), order))
+                self.parameters[l][f] *= ref_point.filter_norm((l, f), order) / (self.filter_norm((l, f), order)+epsilon)
 
     def model_norm(self, order=2) -> float:
         """
@@ -293,11 +295,9 @@ def numpy_to_ModelParameters(arr, similar_model_params):
         output_params.append(arr[j:j+len_].reshape(shape))
         j = j+len_
     output_params = [torch.from_numpy(i) for i in output_params]
-    if torch.cuda.is_available():
-        output_params = [i.cuda() for i in output_params]
     return ModelParameters(output_params)
 
-def rand_u_like(example_vector: ModelParameters) -> ModelParameters:
+def rand_u_like(example_vector: ModelParameters, device=None) -> ModelParameters:
     """
     Create a new ModelParameters object of size and shape compatible with the given
     example vector, such that the values in the ModelParameter are uniformly distributed
@@ -309,8 +309,6 @@ def rand_u_like(example_vector: ModelParameters) -> ModelParameters:
 
     for param in example_vector:
         p = torch.rand(size=param.size(), dtype=example_vector[0].dtype)
-        if torch.cuda.is_available():
-            p = p.cuda()
         new_vector.append(p)
 
     return ModelParameters(new_vector)

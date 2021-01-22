@@ -235,7 +235,7 @@ def planar_interpolation(model_start: typing.Union[torch.nn.Module, ModelWrapper
 
 # noinspection DuplicatedCode
 def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Metric,
-                 normalization='filter', deepcopy_model=False, coord_Tracker: Coordinates_tracker=None, other_models: list= None) -> np.ndarray:
+                 normalization='filter', deepcopy_model=False, coord_Tracker: Coordinates_tracker=None, other_models: list= None, device=None) -> np.ndarray:
     """
     Returns the computed value of the evaluation function applied to the model or agent along a planar
     subspace of the parameter space defined by a start point and two randomly sampled directions.
@@ -275,6 +275,10 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
     :return: 1-d array of loss values along the line connecting start and end models
     :para dirs_: a list of two ModelParameters for directions
     """
+    if device is not None:
+        model = model.cuda()
+    else:
+        print("Warning! random_plane on cpu")
     model_start_wrapper = wrap_model(copy.deepcopy(model) if deepcopy_model else model)
 
     start_point = model_start_wrapper.get_module_parameters()
@@ -286,7 +290,11 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
     else:
         [dir_one, dir_two] = copy.deepcopy(coord_Tracker.dirs_)
 
-    coord_Tracker.load()
+    if device is not None:
+        dir_one = dir_one.cuda()
+        dir_two = dir_two.cuda()
+
+    # coord_Tracker.load() #TODO put this back when you clean up loading/unloading
     if coord_Tracker.steps_ is None:
         coord_Tracker.update_steps(20)
     steps = coord_Tracker.steps_
@@ -338,31 +346,32 @@ def random_plane(model: typing.Union[torch.nn.Module, ModelWrapper], metric: Met
     # along dir_one and each row signifies one step along dir_two. The implementation is again
     # a little convoluted to avoid constructive operations. Fundamentally we generate the matrix
     # [[start_point + (dir_one * i) + (dir_two * j) for j in range(steps)] for i in range(steps].
-    for i in tqdm(range(steps+1)):
-        data_column = []
-        # a = distance*start_point2.model_norm()*(i/steps-0.5)
+    with torch.set_grad_enabled(False):
+        for i in tqdm(range(steps+1)):
+            data_column = []
+            # a = distance*start_point2.model_norm()*(i/steps-0.5)
 
-        for j in tqdm(range(steps+1)):
-            # for every other column, reverse the order in which the column is generated
-            # so you can easily use in-place operations to move along dir_two
-            if i % 2 == 0:
-                data_column.append(metric(model_start_wrapper))
-                # TODO: remove this and other wrappers or copys created for prints. They slow the code down.
-                # diff_one, diff_two = get_non_orth_projections(coord_Tracker.scaled_dirs_, (start_point - start_point2))
-                start_point.add_(dir_two)
-                # b = distance*start_point2.model_norm()*(j/steps-0.5)
-            else:
-                start_point.sub_(dir_two)
-                data_column.insert(0, metric(model_start_wrapper))
-                # diff_one, diff_two = get_non_orth_projections(coord_Tracker.scaled_dirs_, (start_point - start_point2))
-                # b = distance*start_point2.model_norm()*(-j/steps+0.5)
-            # print(metric(model_start_wrapper))
-            # print(diff_one,  diff_two)
-            # print(a, b)
-            # print('---')
+            for j in range(steps+1):
+                # for every other column, reverse the order in which the column is generated
+                # so you can easily use in-place operations to move along dir_two
+                if i % 2 == 0:
+                    data_column.append(metric(model_start_wrapper))
+                    # TODO: remove this and other wrappers or copys created for prints. They slow the code down.
+                    # diff_one, diff_two = get_non_orth_projections(coord_Tracker.scaled_dirs_, (start_point - start_point2))
+                    start_point.add_(dir_two)
+                    # b = distance*start_point2.model_norm()*(j/steps-0.5)
+                else:
+                    start_point.sub_(dir_two)
+                    data_column.insert(0, metric(model_start_wrapper))
+                    # diff_one, diff_two = get_non_orth_projections(coord_Tracker.scaled_dirs_, (start_point - start_point2))
+                    # b = distance*start_point2.model_norm()*(-j/steps+0.5)
+                # print(metric(model_start_wrapper))
+                # print(diff_one,  diff_two)
+                # print(a, b)
+                # print('---')
 
-        data_matrix.append(data_column)
-        start_point.add_(dir_one)
+            data_matrix.append(data_column)
+            start_point.add_(dir_one)
 
     return np.array(data_matrix)
 
